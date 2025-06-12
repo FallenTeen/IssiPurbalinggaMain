@@ -12,16 +12,13 @@ use App\Http\Controllers\ModelMlController;
 
 
 Route::get('/', function () {
-    return Inertia::render('Welcome');
+    return Inertia::render('welcome');
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', function () {
         return Inertia::render('dashboard');
     })->name('dashboard');
-
-    Route::get('/profile', [UserController::class, 'show'])->name('profile.show');
-    Route::put('/profile/{user}', [UserController::class, 'update'])->name('profile.update');
 
     Route::get('/registrasi-saya', [RegistrasiController::class, 'index'])->name('my-registrations.index');
     Route::get('/events/{event}/register', [RegistrasiController::class, 'create'])->name('registrations.create');
