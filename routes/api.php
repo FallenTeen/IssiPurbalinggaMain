@@ -17,11 +17,11 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 
 // Authentication endpoints
-Route::prefix('auth')->name('api.auth.')->group(function () {
-    Route::post('/login', [ApiAuthController::class, 'login'])->name('login');
-    Route::post('/logout', [ApiAuthController::class, 'logout'])->middleware('auth:sanctum')->name('logout');
-    Route::post('/refresh', [ApiAuthController::class, 'refresh'])->middleware('auth:sanctum')->name('refresh');
-});
+// Route::prefix('auth')->name('api.auth.')->group(function () {
+//     Route::post('/login', [ApiAuthController::class, 'login'])->name('login');
+//     Route::post('/logout', [ApiAuthController::class, 'logout'])->middleware('auth:sanctum')->name('logout');
+//     Route::post('/refresh', [ApiAuthController::class, 'refresh'])->middleware('auth:sanctum')->name('refresh');
+// });
 
 // Public API Endpoints
 Route::prefix('v1')->name('api.')->group(function () {

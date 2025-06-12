@@ -17,35 +17,35 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', function () {
-        return Inertia::render('Dashboard');
+        return Inertia::render('dashboard');
     })->name('dashboard');
 
     Route::get('/profile', [UserController::class, 'show'])->name('profile.show');
     Route::put('/profile/{user}', [UserController::class, 'update'])->name('profile.update');
 
-    Route::get('/my-registrations', [RegistrasiController::class, 'index'])->name('my-registrations.index');
+    Route::get('/registrasi-saya', [RegistrasiController::class, 'index'])->name('my-registrations.index');
     Route::get('/events/{event}/register', [RegistrasiController::class, 'create'])->name('registrations.create');
     Route::post('/events/{event}/register', [RegistrasiController::class, 'store'])->name('registrations.store');
-    Route::get('/registrations/{registrasi}', [RegistrasiController::class, 'show'])->name('registrations.show');
+    Route::get('/pendaftaran/{registrasi}', [RegistrasiController::class, 'show'])->name('registrations.show');
 });
 
 Route::middleware(['auth', 'verified', 'role:admin|reporter|verifikator'])->group(function () {
 
-    Route::resource('artikels', ArtikelController::class)->except(['show']); // Show is public, handled below
-    Route::put('artikels/{artikel}/publish', [ArtikelController::class, 'publish'])->name('artikels.publish');
-    Route::put('artikels/{artikel}/archive', [ArtikelController::class, 'archive'])->name('artikels.archive');
+    Route::resource('artikels', ArtikelController::class)->except(['show']);
+    Route::put('artikel/{artikel}/publish', [ArtikelController::class, 'publish'])->name('artikels.publish');
+    Route::put('artikel/{artikel}/archive', [ArtikelController::class, 'archive'])->name('artikels.archive');
 
     Route::middleware('role:admin')->group(function () {
         Route::resource('kategori-artikels', KategoriArtikelController::class);
     });
 
     Route::middleware('role:admin|verifikator')->group(function () {
-        Route::resource('events', EventController::class)->except(['show']); // Show is public, handled below
-        Route::put('events/{event}/open-registration', [EventController::class, 'openRegistration'])->name('events.openRegistration');
-        Route::put('events/{event}/close-registration', [EventController::class, 'closeRegistration'])->name('events.closeRegistration');
-        Route::put('events/{event}/start', [EventController::class, 'startEvent'])->name('events.startEvent');
-        Route::put('events/{event}/complete', [EventController::class, 'completeEvent'])->name('events.completeEvent');
-        Route::put('events/{event}/cancel', [EventController::class, 'cancelEvent'])->name('events.cancelEvent');
+        Route::resource('events', EventController::class)->except(['show']);
+        Route::put('event/{event}/open-registration', [EventController::class, 'openRegistration'])->name('events.openRegistration');
+        Route::put('event/{event}/close-registration', [EventController::class, 'closeRegistration'])->name('events.closeRegistration');
+        Route::put('event/{event}/start', [EventController::class, 'startEvent'])->name('events.startEvent');
+        Route::put('event/{event}/complete', [EventController::class, 'completeEvent'])->name('events.completeEvent');
+        Route::put('event/{event}/cancel', [EventController::class, 'cancelEvent'])->name('events.cancelEvent');
     });
 
     Route::middleware('role:admin|verifikator')->group(function () {
