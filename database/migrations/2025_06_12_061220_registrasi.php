@@ -19,7 +19,7 @@ return new class extends Migration {
             $table->enum('status_pembayaran', ['pending', 'paid', 'failed', 'refunded'])->default('pending');
             $table->string('metode_pembayaran', 50)->nullable();
             $table->string('bukti_pembayaran')->nullable();
-            $table->json('data_registrasi')->nullable(); // Data formulir registrasi
+            $table->json('data_registrasi')->nullable();
             $table->json('kontak_darurat')->nullable();
             $table->json('kondisi_medis')->nullable();
             $table->enum('pengalaman', ['pemula', 'menengah', 'mahir', 'expert'])->default('pemula');
@@ -37,7 +37,7 @@ return new class extends Migration {
             $table->index(['user_id', 'status']);
             $table->index('kode_registrasi');
             $table->index('status_pembayaran');
-            $table->unique(['user_id', 'event_id'], 'unique_user_event'); // Prevent duplicate registration
+            $table->unique(['user_id', 'event_id'], 'unique_user_event');
         });
     }
 

@@ -9,7 +9,7 @@ class Registrasi extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $table = 'registrations';
+    protected $table = 'registrasis';
 
     protected $fillable = [
         'user_id',
@@ -99,7 +99,6 @@ class Registrasi extends Model
         return $statusMap[$this->status] ?? $this->status;
     }
 
-    // Method untuk generate registration code
     public static function generateRegistrationCode($eventId)
     {
         $event = Event::find($eventId);
@@ -110,7 +109,6 @@ class Registrasi extends Model
         return $prefix . $timestamp . $random;
     }
 
-    // Method untuk konfirmasi registrasi
     public function confirm()
     {
         $this->update([
@@ -119,7 +117,6 @@ class Registrasi extends Model
         ]);
     }
 
-    // Method untuk cancel registrasi
     public function cancel()
     {
         $this->update([

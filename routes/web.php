@@ -16,7 +16,7 @@ Route::get('/', function () {
 })->name('home');
 
 Route::get('/artikels-show/{artikel:slug}', [ArtikelController::class, 'show'])->name('artikels.show');
-Route::get('/events/{event:slug}', [EventController::class, 'show'])->name('events.show');
+Route::get('/events-show/{event:slug}', [EventController::class, 'show'])->name('events.show');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', function () {

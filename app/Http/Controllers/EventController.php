@@ -7,6 +7,7 @@ use App\Services\GoogleDriveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Inertia\Inertia; // Import Inertia
 
 class EventController extends Controller
 {
@@ -17,9 +18,6 @@ class EventController extends Controller
         $this->googleDriveService = $googleDriveService;
     }
 
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request)
     {
         $query = Event::query();
@@ -58,25 +56,22 @@ class EventController extends Controller
         if ($request->has('sort_by') && $request->sort_by === 'popular') {
             $query->popular();
         } else {
-            $query->orderBy('tanggal_mulai', 'asc'); // Default sort
+            $query->orderBy('tanggal_mulai', 'asc');
         }
 
         $events = $query->paginate(10);
 
-        return view('events.index', compact('events'));
+        return Inertia::render('event/index', [
+            'events' => $events,
+            'filters' => $request->all()
+        ]);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create()
     {
-        return view('events.create');
+        return Inertia::render('event/create');
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         $request->validate([
@@ -110,7 +105,7 @@ class EventController extends Controller
             $path = $request->file('banner_image')->store('public/event_banners');
             $fileName = basename($path);
             $mimeType = $request->file('banner_image')->getMimeType();
-            $folderId = config('services.google.drive.event_banner_folder_id'); // Make sure this is configured
+            $folderId = config('services.google.drive.event_banner_folder_id');
             $fileId = $this->googleDriveService->uploadFile(Storage::path($path), $fileName, $mimeType, $folderId);
             $eventData['banner_image_url'] = 'https://drive.google.com/uc?id=' . $fileId;
             Storage::delete($path);
@@ -122,7 +117,7 @@ class EventController extends Controller
                 $path = $image->store('public/event_galleries');
                 $fileName = basename($path);
                 $mimeType = $image->getMimeType();
-                $folderId = config('services.google.drive.event_gallery_folder_id'); // Make sure this is configured
+                $folderId = config('services.google.drive.event_gallery_folder_id');
                 $fileId = $this->googleDriveService->uploadFile(Storage::path($path), $fileName, $mimeType, $folderId);
                 $galleryUrls[] = 'https://drive.google.com/uc?id=' . $fileId;
                 Storage::delete($path);
@@ -135,25 +130,16 @@ class EventController extends Controller
         return redirect()->route('events.index')->with('success', 'Event berhasil ditambahkan!');
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Event $event)
     {
-        return view('events.show', compact('event'));
+        return Inertia::render('event/show', compact('event'));
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
     public function edit(Event $event)
     {
-        return view('events.edit', compact('event'));
+        return Inertia::render('event/edit', compact('event'));
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, Event $event)
     {
         $request->validate([
@@ -193,7 +179,7 @@ class EventController extends Controller
             Storage::delete($path);
         }
 
-        $galleryUrls = $event->gallery_urls ?? []; // Keep existing
+        $galleryUrls = $event->gallery_urls ?? [];
         if ($request->hasFile('gallery_images')) {
             foreach ($request->file('gallery_images') as $image) {
                 $path = $image->store('public/event_galleries');
@@ -209,60 +195,42 @@ class EventController extends Controller
 
         $event->update($eventData);
 
-        return redirect()->route('events.show', $event)->with('success', 'Event berhasil diperbarui!');
+        return redirect()->route('events.show', $event->slug)->with('success', 'Event berhasil diperbarui!');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Event $event)
     {
         if ($event->registrations()->exists()) {
             return redirect()->back()->with('error', 'Event tidak dapat dihapus karena memiliki registrasi terkait.');
         }
         $event->delete();
-        return redirect()->route('events.index')->with('success', 'Event berhasil dihapus!');
+        return redirect()->route('event.index')->with('success', 'Event berhasil dihapus!');
     }
 
-    /**
-     * Open registration for the specified event.
-     */
     public function openRegistration(Event $event)
     {
         $event->openRegistration();
         return redirect()->back()->with('success', 'Pendaftaran event berhasil dibuka!');
     }
 
-    /**
-     * Close registration for the specified event.
-     */
     public function closeRegistration(Event $event)
     {
         $event->closeRegistration();
         return redirect()->back()->with('success', 'Pendaftaran event berhasil ditutup!');
     }
 
-    /**
-     * Start the specified event.
-     */
     public function startEvent(Event $event)
     {
         $event->start();
         return redirect()->back()->with('success', 'Event berhasil dimulai!');
     }
 
-    /**
-     * Complete the specified event.
-     */
     public function completeEvent(Event $event)
     {
         $event->complete();
         return redirect()->back()->with('success', 'Event berhasil diselesaikan!');
     }
 
-    /**
-     * Cancel the specified event.
-     */
     public function cancelEvent(Event $event)
     {
         $event->cancel();

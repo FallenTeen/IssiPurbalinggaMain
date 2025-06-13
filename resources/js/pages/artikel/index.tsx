@@ -147,7 +147,7 @@ export default function ArtikelIndex() {
     const handlePublish = (artikelId: number) => {
         if (confirm('Apakah Anda yakin ingin mempublikasikan artikel ini?')) {
             router.put(
-                `/artikels/${artikelId}/publish`,
+                route('artikels.publish', artikelId),
                 {},
                 {
                     onSuccess: () => alert('Artikel berhasil dipublikasikan!'),
@@ -160,7 +160,7 @@ export default function ArtikelIndex() {
     const handleArchive = (artikelId: number) => {
         if (confirm('Apakah Anda yakin ingin mengarsipkan artikel ini?')) {
             router.put(
-                `/artikels/${artikelId}/archive`,
+                route('artikels.archive', artikelId),
                 {},
                 {
                     onSuccess: () => alert('Artikel berhasil diarsipkan!'),
@@ -174,7 +174,7 @@ export default function ArtikelIndex() {
         const reason = prompt('Masukkan alasan penolakan artikel (minimal 10 karakter):');
         if (reason && reason.trim().length >= 10) {
             router.put(
-                `/artikels/${artikel.id}/reject`,
+                route('artikels.reject', artikel.id),
                 { rejection_reason: reason.trim() },
                 {
                     onSuccess: () => {
@@ -182,7 +182,7 @@ export default function ArtikelIndex() {
                     },
                     onError: (errors) => {
                         console.error('Error rejecting artikel:', errors);
-                        const errorMessage = errors.message || errors.rejection_reason || 'Gagal menolak artikel.';
+                        const errorMessage = errors.message || (typeof errors === 'object' && errors !== null ? Object.values(errors).flat().join('\n') : 'Gagal menolak artikel.');
                         alert(errorMessage);
                     },
                 },
@@ -196,7 +196,7 @@ export default function ArtikelIndex() {
         const reason = prompt('Masukkan alasan revisi artikel (minimal 10 karakter):');
         if (reason && reason.trim().length >= 10) {
             router.put(
-                `/artikels/${artikel.id}/revise`,
+                route('artikels.revise', artikel.id),
                 { revision_reason: reason.trim() },
                 {
                     onSuccess: () => {
@@ -204,7 +204,7 @@ export default function ArtikelIndex() {
                     },
                     onError: (errors) => {
                         console.error('Error revising artikel:', errors);
-                        const errorMessage = errors.message || errors.revision_reason || 'Gagal meminta revisi artikel.';
+                        const errorMessage = errors.message || (typeof errors === 'object' && errors !== null ? Object.values(errors).flat().join('\n') : 'Gagal meminta revisi artikel.');
                         alert(errorMessage);
                     },
                 },
@@ -216,7 +216,7 @@ export default function ArtikelIndex() {
 
     const handleDelete = (artikelId: number) => {
         if (confirm('Apakah Anda yakin ingin menghapus artikel ini? Tindakan ini tidak dapat dibatalkan.')) {
-            router.delete(`/artikels/${artikelId}`, {
+            router.delete(route('artikels.destroy', artikelId), {
                 onSuccess: () => alert('Artikel berhasil dihapus!'),
                 onError: (errors) => alert(errors.message || 'Gagal menghapus artikel.'),
             });
@@ -230,7 +230,7 @@ export default function ArtikelIndex() {
                 <div className="flex items-center justify-between">
                     <h2 className="text-2xl leading-none font-semibold tracking-tight">Daftar Artikel</h2>
                     {canCreateArtikel && (
-                        <Link href="/artikels/create">
+                        <Link href={route('artikels.create')}> {/* Use named route */}
                             <Button>Tambah Artikel</Button>
                         </Link>
                     )}
@@ -265,7 +265,7 @@ export default function ArtikelIndex() {
                                         <SelectContent>
                                             <SelectItem value="all">Semua</SelectItem>
                                             <SelectItem value="draft">Draft</SelectItem>
-                                            <SelectItem value="review">Review</SelectItem>
+                                            <SelectItem value="review">Review</SelectItem> {/* Keep review status filter */}
                                             <SelectItem value="published">Published</SelectItem>
                                             <SelectItem value="archived">Archived</SelectItem>
                                         </SelectContent>
@@ -376,14 +376,14 @@ export default function ArtikelIndex() {
                                             </TableCell>
                                             <TableCell>{artikel.views_count ?? 0}</TableCell>
                                             <TableCell className="flex flex-wrap gap-2">
-                                                <Link href={`/artikels/${artikel.slug}`}>
+                                                <Link href={route('artikels.show', artikel.slug)}> {/* Use named route */}
                                                     <Button variant="outline" size="sm">
                                                         Lihat
                                                     </Button>
                                                 </Link>
 
                                                 {canEditArtikel(artikel) && (
-                                                    <Link href={`/artikels/${artikel.id}/edit`}>
+                                                    <Link href={route('artikels.edit', artikel.id)}> {/* Use named route */}
                                                         <Button variant="outline" size="sm">
                                                             Edit
                                                         </Button>
