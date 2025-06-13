@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Spatie\Permission\Traits\HasRoles;
 
 class RoleMiddleware
 {
@@ -28,17 +29,15 @@ class RoleMiddleware
             $parts = explode('|', $roleArg);
             $requiredRoles = array_merge($requiredRoles, $parts);
         }
+
         $requiredRoles = array_unique(array_map('trim', $requiredRoles));
 
-        Log::info('RoleMiddleware: User ID - ' . $user->id . ', Role - ' . $user->role . ', URL: ' . $request->fullUrl());
-        Log::info('RoleMiddleware: Required roles for ' . $request->path() . ' - ' . implode(', ', $requiredRoles));
-
-
-        if ($user && in_array($user->role, $requiredRoles)) {
+        if ($user && $user->hasAnyRole($requiredRoles)) {
+            Log::info('RoleMiddleware: Access granted for user ' . $user->id . '. User roles: [' . implode(', ', $user->getRoleNames()->toArray()) . ']. Required roles: [' . implode(', ', $requiredRoles) . ']');
             return $next($request);
         }
 
-        Log::warning('RoleMiddleware: Access denied for user ' . $user->id . ' (Role: ' . $user->role . ') trying to access ' . $request->fullUrl() . '. Required roles: ' . implode(', ', $requiredRoles));
+        Log::warning('RoleMiddleware: Access denied for user ' . $user->id . ' (User roles: [' . implode(', ', $user->getRoleNames()->toArray()) . ']) trying to access ' . $request->fullUrl() . '. Required roles: [' . implode(', ', $requiredRoles) . ']');
         abort(403, 'Anda tidak memiliki izin untuk mengakses halaman ini.');
     }
 }

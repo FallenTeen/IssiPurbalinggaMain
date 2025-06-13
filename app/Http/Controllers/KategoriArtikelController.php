@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\KategoriArtikel;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 
 class KategoriArtikelController extends Controller
 {
@@ -18,15 +19,19 @@ class KategoriArtikelController extends Controller
             $query->active();
         }
 
-        if ($request->has('parent')) {
-            $query->parent();
+        if ($request->input('parent') === '0') {
+            $query->whereNull('parent_id');
+        } elseif ($request->input('parent') === '1') {
+            $query->whereNotNull('parent_id');
         }
 
         $query->orderBySortOrder();
 
         $kategoris = $query->paginate(10);
-
-        return view('kategori_artikels.index', compact('kategoris'));
+        return Inertia::render('kategoriartikel/index', [
+            'kategoris' => $kategoris,
+            'filters' => $request->only(['active', 'parent']),
+        ]);
     }
 
     /**
@@ -34,8 +39,10 @@ class KategoriArtikelController extends Controller
      */
     public function create()
     {
-        $parentKategoris = KategoriArtikel::parent()->get();
-        return view('kategori_artikels.create', compact('parentKategoris'));
+        $parentKategoris = KategoriArtikel::orderBy('nama')->whereNull('parent_id')->get();
+        return Inertia::render('kategoriartikel/create', [
+            'parentKategoris' => $parentKategoris,
+        ]);
     }
 
     /**
@@ -55,7 +62,7 @@ class KategoriArtikelController extends Controller
 
         KategoriArtikel::create($request->all());
 
-        return redirect()->route('kategori_artikels.index')->with('success', 'Kategori Artikel berhasil ditambahkan!');
+        return redirect()->route('kategoriartikel.index')->with('success', 'Kategori Artikel berhasil ditambahkan!');
     }
 
     /**
@@ -63,7 +70,9 @@ class KategoriArtikelController extends Controller
      */
     public function show(KategoriArtikel $kategoriArtikel)
     {
-        return view('kategori_artikels.show', compact('kategoriArtikel'));
+        return Inertia::render('kategoriartikel/show', [
+            'kategoriArtikel' => $kategoriArtikel,
+        ]);
     }
 
     /**
@@ -71,8 +80,14 @@ class KategoriArtikelController extends Controller
      */
     public function edit(KategoriArtikel $kategoriArtikel)
     {
-        $parentKategoris = KategoriArtikel::parent()->where('id', '!=', $kategoriArtikel->id)->get();
-        return view('kategori_artikels.edit', compact('kategoriArtikel', 'parentKategoris'));
+        $parentKategoris = KategoriArtikel::orderBy('nama')
+            ->whereNull('parent_id')
+            ->where('id', '!=', $kategoriArtikel->id)
+            ->get();
+        return Inertia::render('kategoriartikel/edit', [
+            'kategoriArtikel' => $kategoriArtikel,
+            'parentKategoris' => $parentKategoris,
+        ]);
     }
 
     /**
@@ -92,7 +107,7 @@ class KategoriArtikelController extends Controller
 
         $kategoriArtikel->update($request->all());
 
-        return redirect()->route('kategori_artikels.show', $kategoriArtikel)->with('success', 'Kategori Artikel berhasil diperbarui!');
+        return redirect()->route('kategoriartikel.show', $kategoriArtikel)->with('success', 'Kategori Artikel berhasil diperbarui!');
     }
 
     /**
@@ -105,6 +120,6 @@ class KategoriArtikelController extends Controller
         }
 
         $kategoriArtikel->delete();
-        return redirect()->route('kategori_artikels.index')->with('success', 'Kategori Artikel berhasil dihapus!');
+        return redirect()->route('kategoriartikel.index')->with('success', 'Kategori Artikel berhasil dihapus!');
     }
 }
