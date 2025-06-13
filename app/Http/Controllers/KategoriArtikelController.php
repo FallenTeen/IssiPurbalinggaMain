@@ -8,9 +8,6 @@ use Inertia\Inertia;
 
 class KategoriArtikelController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request)
     {
         $query = KategoriArtikel::query();
@@ -34,9 +31,6 @@ class KategoriArtikelController extends Controller
         ]);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create()
     {
         $parentKategoris = KategoriArtikel::orderBy('nama')->whereNull('parent_id')->get();
@@ -45,9 +39,6 @@ class KategoriArtikelController extends Controller
         ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         $request->validate([
@@ -65,9 +56,6 @@ class KategoriArtikelController extends Controller
         return redirect()->route('kategoriartikel.index')->with('success', 'Kategori Artikel berhasil ditambahkan!');
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(KategoriArtikel $kategoriArtikel)
     {
         return Inertia::render('kategoriartikel/show', [
@@ -75,9 +63,6 @@ class KategoriArtikelController extends Controller
         ]);
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
     public function edit(KategoriArtikel $kategoriArtikel)
     {
         $parentKategoris = KategoriArtikel::orderBy('nama')
@@ -90,9 +75,6 @@ class KategoriArtikelController extends Controller
         ]);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, KategoriArtikel $kategoriArtikel)
     {
         $request->validate([
@@ -110,9 +92,6 @@ class KategoriArtikelController extends Controller
         return redirect()->route('kategoriartikel.show', $kategoriArtikel)->with('success', 'Kategori Artikel berhasil diperbarui!');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(KategoriArtikel $kategoriArtikel)
     {
         if ($kategoriArtikel->children()->exists() || $kategoriArtikel->artikels()->exists()) {

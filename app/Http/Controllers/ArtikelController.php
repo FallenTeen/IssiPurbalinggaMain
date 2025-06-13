@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Artikel;
 use App\Models\KategoriArtikel;
 use App\Models\User;
+use App\Models\Event;
 use App\Services\GoogleDriveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -43,7 +44,7 @@ class ArtikelController extends Controller
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('judul', 'like', $searchTerm)
                     ->orWhere('content', 'like', $searchTerm)
-                    ->orWhere('tags', 'like', $searchTerm);
+                    ->orWhereJsonContains('tags', $searchTerm);
             });
         }
 
@@ -56,12 +57,11 @@ class ArtikelController extends Controller
         } else {
             $query->orderBy('created_at', 'desc');
         }
+
         if (auth()->check()) {
             $user = auth()->user();
-            if ($user->hasRole('reporter')) {
-                if (!$user->hasAnyRole(['admin', 'verifikator'])) {
-                    $query->where('reporter_id', $user->id);
-                }
+            if ($user->hasRole('reporter') && !$user->hasAnyRole(['admin', 'verifikator'])) {
+                $query->where('reporter_id', $user->id);
             }
         } else {
             $query->where('status', 'published');
@@ -85,10 +85,12 @@ class ArtikelController extends Controller
 
         $kategoris = KategoriArtikel::active()->get(['id', 'nama']);
         $reporters = User::reporters()->get(['id', 'name']);
+        $events = Event::active()->get(['id', 'nama']);
 
         return Inertia::render('artikel/create', [
             'kategoris' => $kategoris,
             'reporters' => $reporters,
+            'events' => $events,
         ]);
     }
 
@@ -108,21 +110,22 @@ class ArtikelController extends Controller
             'tags.*' => 'string|max:50',
             'meta_description' => 'nullable|string|max:255',
             'tanggal_jadwal_publikasi' => 'nullable|date',
+            'event_terkait' => 'nullable|array',
+            'event_terkait.*' => 'exists:events,id',
         ]);
 
-        if (auth()->user()->hasRole('reporter') && (int) $validatedData['reporter_id'] !== auth()->id()) {
+        $user = auth()->user();
+        if ($user->hasRole('reporter') && (int) $validatedData['reporter_id'] !== $user->id) {
             return redirect()->back()->withErrors(['reporter_id' => 'Anda hanya bisa membuat artikel atas nama Anda sendiri.']);
         }
 
-        if (auth()->user()->hasRole('reporter') && $validatedData['status'] === 'published') {
+        if ($user->hasRole('reporter') && !$user->hasAnyRole(['admin', 'verifikator'])) {
             $validatedData['status'] = 'review';
         }
 
+
         $artikelData = $validatedData;
         $artikelData['slug'] = Artikel::generateUniqueSlug($request->judul);
-
-        $artikelData['tags'] = $request->tags ?? [];
-
         if ($request->hasFile('featured_image')) {
             $path = $request->file('featured_image')->store('public/artikel_featured_images');
             $fileName = basename($path);
@@ -148,12 +151,14 @@ class ArtikelController extends Controller
         $artikelData['gallery_urls'] = $galleryUrls;
 
         $artikel = Artikel::create($artikelData);
-
-        if ($artikel->status === 'published' && !$request->tanggal_jadwal_publikasi && (auth()->user()->hasAnyRole(['admin', 'verifikator']))) {
-            $artikel->publish();
+        if ($artikel->status === 'published' && !$request->tanggal_jadwal_publikasi && $artikel->tanggal_publikasi === null) {
+            if ($user->hasAnyRole(['admin', 'verifikator'])) {
+                $artikel->publish();
+            }
         } elseif ($artikel->status === 'published' && $request->tanggal_jadwal_publikasi) {
             $artikel->update(['tanggal_publikasi' => $request->tanggal_jadwal_publikasi]);
         }
+
 
         return redirect()->route('artikels.index')->with('success', 'Artikel berhasil ditambahkan!');
     }
@@ -161,8 +166,9 @@ class ArtikelController extends Controller
     public function show(Artikel $artikel)
     {
         $this->authorize('view', $artikel);
-
         $artikel->load(['reporter', 'kategori']);
+        $artikel->related_events = Event::whereIn('id', $artikel->event_terkait ?? [])->get();
+
         $artikel->incrementView();
         return Inertia::render('artikel/show', [
             'artikel' => $artikel,
@@ -172,17 +178,19 @@ class ArtikelController extends Controller
     public function edit(Artikel $artikel)
     {
         $this->authorize('update', $artikel);
-        if (!$artikel->canBeEdited()) {
-            return redirect()->route('artikels.show', $artikel->slug)->with('error', 'Artikel tidak dapat diedit dalam status ini.');
+        $user = auth()->user();
+        if ($user->hasRole('reporter') && $artikel->reporter_id === $user->id && $artikel->status === 'published') {
         }
 
         $kategoris = KategoriArtikel::active()->get(['id', 'nama']);
         $reporters = User::reporters()->get(['id', 'name']);
+        $events = Event::active()->get(['id', 'nama']);
 
         return Inertia::render('artikel/edit', [
             'artikel' => $artikel,
             'kategoris' => $kategoris,
             'reporters' => $reporters,
+            'events' => $events,
         ]);
     }
 
@@ -190,38 +198,49 @@ class ArtikelController extends Controller
     {
         $this->authorize('update', $artikel);
 
-        if (!$artikel->canBeEdited()) {
-            return redirect()->route('artikels.show', $artikel->slug)->with('error', 'Artikel tidak dapat diedit dalam status ini.');
-        }
+        $user = auth()->user();
+        $isReporterEditingPublishedOwnArticle = (
+            $user->hasRole('reporter') &&
+            $artikel->reporter_id === $user->id &&
+            $artikel->isPublished()
+        );
 
-        $validatedData = $request->validate([
+        $rules = [
             'judul' => 'required|string|max:255',
             'content' => 'required|string',
             'reporter_id' => 'required|exists:users,id',
             'kategori_id' => 'required|exists:kategori_artikels,id',
-            'status' => 'required|in:draft,review,published,archived',
             'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
             'gallery_images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
             'meta_description' => 'nullable|string|max:255',
             'tanggal_jadwal_publikasi' => 'nullable|date',
-        ]);
+            'event_terkait' => 'nullable|array',
+            'event_terkait.*' => 'exists:events,id',
+        ];
 
-        if (auth()->user()->hasRole('reporter')) {
-            if ((int) $validatedData['reporter_id'] !== auth()->id()) {
-                return redirect()->back()->withErrors(['message' => 'Anda hanya bisa mengedit artikel Anda sendiri.']);
-            }
-            if ($validatedData['status'] === 'published' && $artikel->status !== 'published') {
-                unset($validatedData['status']);
-                $validatedData['status'] = 'review';
-            }
+        if (!$isReporterEditingPublishedOwnArticle) {
+            $rules['status'] = 'required|in:draft,review,published,archived';
         }
+
+        $validatedData = $request->validate($rules);
+
+        if ($user->hasRole('reporter') && (int) $validatedData['reporter_id'] !== $user->id) {
+            return redirect()->back()->withErrors(['message' => 'Anda hanya bisa mengedit artikel Anda sendiri.']);
+        }
+
+        if ($isReporterEditingPublishedOwnArticle) {
+            $validatedData['status'] = 'draft';
+            $validatedData['tanggal_publikasi'] = null;
+            $validatedData['rejection_reason'] = 'Artikel diubah oleh reporter setelah publikasi, status dikembalikan ke draft untuk review ulang.';
+        } elseif ($user->hasRole('reporter') && isset($validatedData['status']) && $validatedData['status'] === 'published' && $artikel->status !== 'published' && !$user->hasAnyRole(['admin', 'verifikator'])) {
+            $validatedData['status'] = 'review';
+        }
+
 
         $artikelData = $validatedData;
         $artikelData['slug'] = Artikel::generateUniqueSlug($request->judul, $artikel->id);
-
-        $artikelData['tags'] = $request->tags ?? [];
 
         if ($request->hasFile('featured_image')) {
             $path = $request->file('featured_image')->store('public/artikel_featured_images');
@@ -248,11 +267,15 @@ class ArtikelController extends Controller
         $artikelData['gallery_urls'] = $galleryUrls;
 
         $artikel->update($artikelData);
-        if ($artikel->status === 'published' && !$request->tanggal_jadwal_publikasi && $artikel->tanggal_publikasi === null && (auth()->user()->hasAnyRole(['admin', 'verifikator']))) {
-            $artikel->publish();
-        } elseif ($artikel->status === 'published' && $request->tanggal_jadwal_publikasi) {
+
+        if ($artikel->status === 'published' && !$request->tanggal_jadwal_publikasi && $artikel->tanggal_publikasi === null) {
+            if ($user->hasAnyRole(['admin', 'verifikator'])) {
+                $artikel->publish();
+            }
+        } elseif ($artikel->status === 'published' && $request->tanggal_jadwal_publikasi && $artikel->tanggal_publikasi != $request->tanggal_jadwal_publikasi) {
             $artikel->update(['tanggal_publikasi' => $request->tanggal_jadwal_publikasi]);
         }
+
 
         return redirect()->route('artikels.show', $artikel->slug)->with('success', 'Artikel berhasil diperbarui!');
     }
@@ -281,14 +304,45 @@ class ArtikelController extends Controller
         return redirect()->back()->with('success', 'Artikel berhasil diarsipkan!');
     }
 
-    public function reject(Artikel $artikel)
+    public function reject(Request $request, Artikel $artikel)
     {
         $this->authorize('reject', $artikel);
-        if ($artikel->status === 'review' || $artikel->status === 'published') {
-            $artikel->update(['status' => 'draft']);
+
+        $request->validate([
+            'rejection_reason' => 'required|string|min:10|max:1000',
+        ]);
+
+        if (in_array($artikel->status, ['review', 'published', 'draft'])) {
+            $artikel->update([
+                'status' => 'draft',
+                'rejection_reason' => $request->rejection_reason,
+                'tanggal_publikasi' => null,
+            ]);
+
             return redirect()->back()->with('success', 'Artikel berhasil ditolak dan dikembalikan ke draft.');
         }
 
         return redirect()->back()->with('error', 'Artikel tidak dapat ditolak dalam status ini.');
+    }
+
+    public function revise(Request $request, Artikel $artikel)
+    {
+        $this->authorize('revise', $artikel);
+
+        $request->validate([
+            'revision_reason' => 'required|string|min:10|max:1000',
+        ]);
+
+        if (in_array($artikel->status, ['published', 'archived', 'review'])) {
+            $artikel->update([
+                'status' => 'draft',
+                'rejection_reason' => $request->revision_reason,
+                'tanggal_publikasi' => null,
+            ]);
+
+            return redirect()->back()->with('success', 'Artikel berhasil dikembalikan untuk revisi.');
+        }
+
+        return redirect()->back()->with('error', 'Artikel tidak dapat direvisi dalam status ini.');
     }
 }

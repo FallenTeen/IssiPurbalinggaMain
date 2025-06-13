@@ -1,6 +1,8 @@
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -19,6 +21,11 @@ interface KategoriArtikel {
     nama: string;
 }
 
+interface Event {
+    id: number;
+    nama: string;
+}
+
 interface Artikel {
     id: number;
     judul: string;
@@ -29,11 +36,13 @@ interface Artikel {
     kategori_id: number;
     kategori: KategoriArtikel;
     status: 'draft' | 'review' | 'published' | 'archived';
+    rejection_reason: string | null;
     featured_image_url: string | null;
     gallery_urls: string[];
     tags: string[] | null;
     meta_description: string | null;
     tanggal_jadwal_publikasi: string | null;
+    event_terkait: number[] | null;
     created_at: string;
     updated_at: string;
 }
@@ -42,6 +51,7 @@ interface ArtikelEditProps {
     artikel: Artikel;
     kategoris: KategoriArtikel[];
     reporters: User[];
+    events: Event[];
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -59,9 +69,11 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
-export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEditProps) {
+export default function ArtikelEdit({ artikel, kategoris, reporters, events }: ArtikelEditProps) {
     const { auth } = usePage<{ auth: { user: User } }>().props;
     const [newTag, setNewTag] = useState<string>('');
+    const [eventSearch, setEventSearch] = useState<string>('');
+
     const { data, setData, post, processing, errors } = useForm({
         _method: 'put',
         judul: artikel.judul,
@@ -69,11 +81,13 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
         reporter_id: String(artikel.reporter_id),
         kategori_id: String(artikel.kategori_id),
         status: artikel.status,
+        rejection_reason: artikel.rejection_reason || '',
         featured_image: null as File | null,
         gallery_images: [] as File[],
         tags: artikel.tags || [],
         meta_description: artikel.meta_description || '',
         tanggal_jadwal_publikasi: artikel.tanggal_jadwal_publikasi ? new Date(artikel.tanggal_jadwal_publikasi) : null,
+        event_terkait: artikel.event_terkait || [],
     });
 
     const dynamicBreadcrumbs: BreadcrumbItem[] = [
@@ -87,6 +101,9 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
     const isAdmin = auth.user.roles.includes('admin');
     const isReporter = auth.user.roles.includes('reporter');
     const isVerifikator = auth.user.roles.includes('verifikator');
+
+    const isDisabledForReporterOnPublishedOwnArticle =
+        isReporter && !isAdmin && !isVerifikator && artikel.status === 'published' && artikel.reporter_id === auth.user.id;
 
     const handleAddTag = () => {
         if (newTag.trim() !== '' && !data.tags.includes(newTag.trim())) {
@@ -109,28 +126,71 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
         }
     };
 
+    const handleAddEvent = (eventId: number) => {
+        if (!data.event_terkait.includes(eventId)) {
+            setData('event_terkait', [...data.event_terkait, eventId]);
+        }
+    };
+
+    const handleRemoveEvent = (eventId: number) => {
+        setData(
+            'event_terkait',
+            data.event_terkait.filter((id) => id !== eventId),
+        );
+    };
+
+    const filteredEvents = events.filter((event) => event.nama.toLowerCase().includes(eventSearch.toLowerCase()));
+
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
-        const submitData = {
-            _method: 'put',
-            judul: data.judul,
-            content: data.content,
-            reporter_id: data.reporter_id,
-            kategori_id: data.kategori_id,
-            meta_description: data.meta_description,
-            status: isReporter && data.status === 'published' && artikel.status !== 'published' ? 'review' : data.status,
-            tags: data.tags,
-            tanggal_jadwal_publikasi: data.tanggal_jadwal_publikasi ? format(data.tanggal_jadwal_publikasi, 'yyyy-MM-dd') : null,
-            featured_image: data.featured_image,
-            gallery_images: data.gallery_images,
-        };
+        const formData = new FormData();
+
+        formData.append('_method', 'put');
+        formData.append('judul', data.judul);
+        formData.append('content', data.content);
+        formData.append('reporter_id', data.reporter_id);
+        formData.append('kategori_id', data.kategori_id);
+        formData.append('meta_description', data.meta_description || '');
+
+        let submissionStatus = data.status;
+        if (isDisabledForReporterOnPublishedOwnArticle) {
+            submissionStatus = 'draft';
+            formData.append('rejection_reason', 'Diubah oleh reporter setelah publikasi.');
+        } else if (isReporter && submissionStatus === 'published' && artikel.status !== 'published' && !isAdmin && !isVerifikator) {
+            submissionStatus = 'review';
+        }
+        formData.append('status', submissionStatus);
+
+        if (data.rejection_reason && (isAdmin || isVerifikator)) {
+            formData.append('rejection_reason', data.rejection_reason);
+        }
+
+        data.tags.forEach((tag, index) => {
+            formData.append(`tags[${index}]`, tag);
+        });
+
+        data.event_terkait.forEach((eventId, index) => {
+            formData.append(`event_terkait[${index}]`, eventId.toString());
+        });
+
+        if (data.tanggal_jadwal_publikasi) {
+            const formattedDate = format(data.tanggal_jadwal_publikasi, 'yyyy-MM-dd');
+            formData.append('tanggal_jadwal_publikasi', formattedDate);
+        } else {
+            formData.append('tanggal_jadwal_publikasi', '');
+        }
+
+        if (data.featured_image) {
+            formData.append('featured_image', data.featured_image);
+        }
+        data.gallery_images.forEach((image, index) => {
+            formData.append(`gallery_images[${index}]`, image);
+        });
 
         post(route('artikels.update', artikel.id), {
-            data: submitData,
-            forceFormData: true,
+            data: formData,
             onSuccess: () => {},
             onError: (errors) => {
-                console.error('Validation errors:', errors);
                 const errorMessage = Object.values(errors).flat().join('\n');
                 alert('Gagal memperbarui artikel:\n' + errorMessage);
             },
@@ -161,7 +221,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                         value={data.judul}
                                         onChange={(e) => setData('judul', e.target.value)}
                                         className={errors.judul ? 'border-destructive' : ''}
-                                        disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                        disabled={isDisabledForReporterOnPublishedOwnArticle}
                                     />
                                     {errors.judul && <p className="mt-1 text-sm text-destructive">{errors.judul}</p>}
                                 </div>
@@ -173,7 +233,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                         onChange={(e) => setData('content', e.target.value)}
                                         className={errors.content ? 'border-destructive' : ''}
                                         rows={10}
-                                        disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                        disabled={isDisabledForReporterOnPublishedOwnArticle}
                                     />
                                     {errors.content && <p className="mt-1 text-sm text-destructive">{errors.content}</p>}
                                 </div>
@@ -191,7 +251,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                         accept="image/*"
                                         onChange={(e) => setData('featured_image', e.target.files ? e.target.files[0] : null)}
                                         className={errors.featured_image ? 'border-destructive' : ''}
-                                        disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                        disabled={isDisabledForReporterOnPublishedOwnArticle}
                                     />
                                     {errors.featured_image && <p className="mt-1 text-sm text-destructive">{errors.featured_image}</p>}
                                 </div>
@@ -219,7 +279,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                         multiple
                                         onChange={(e) => setData('gallery_images', Array.from(e.target.files || []) as File[])}
                                         className={errors.gallery_images ? 'border-destructive' : ''}
-                                        disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                        disabled={isDisabledForReporterOnPublishedOwnArticle}
                                     />
                                     {errors.gallery_images && <p className="mt-1 text-sm text-destructive">{errors.gallery_images}</p>}
                                 </div>
@@ -250,7 +310,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                     <Select
                                         onValueChange={(value) => setData('kategori_id', value)}
                                         value={data.kategori_id}
-                                        disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                        disabled={isDisabledForReporterOnPublishedOwnArticle}
                                     >
                                         <SelectTrigger id="kategori_id" className={errors.kategori_id ? 'border-destructive' : ''}>
                                             <SelectValue placeholder="Pilih Kategori" />
@@ -270,7 +330,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                     <Select
                                         onValueChange={(value: 'draft' | 'review' | 'published' | 'archived') => setData('status', value)}
                                         value={data.status}
-                                        disabled={isReporter && !isAdmin}
+                                        disabled={isDisabledForReporterOnPublishedOwnArticle || (isReporter && !isAdmin && !isVerifikator)}
                                     >
                                         <SelectTrigger id="status" className={errors.status ? 'border-destructive' : ''}>
                                             <SelectValue placeholder="Pilih Status" />
@@ -284,6 +344,21 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                     </Select>
                                     {errors.status && <p className="mt-1 text-sm text-destructive">{errors.status}</p>}
                                 </div>
+                                {(artikel.rejection_reason && (isAdmin || isVerifikator)) || (data.rejection_reason && (isAdmin || isVerifikator)) ? (
+                                    <div>
+                                        <Label htmlFor="rejection_reason">Alasan Penolakan/Revisi</Label>
+                                        <Textarea
+                                            id="rejection_reason"
+                                            value={data.rejection_reason}
+                                            onChange={(e) => setData('rejection_reason', e.target.value)}
+                                            className={errors.rejection_reason ? 'border-destructive' : ''}
+                                            rows={3}
+                                            placeholder="Masukkan alasan penolakan jika artikel ditolak atau dikembalikan ke draft."
+                                            disabled={isDisabledForReporterOnPublishedOwnArticle || (!isAdmin && !isVerifikator)}
+                                        />
+                                        {errors.rejection_reason && <p className="mt-1 text-sm text-destructive">{errors.rejection_reason}</p>}
+                                    </div>
+                                ) : null}
                                 <div>
                                     <Label htmlFor="tags">Tags</Label>
                                     <div className="flex space-x-2">
@@ -295,13 +370,9 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                             onKeyDown={handleTagInputKeyDown}
                                             placeholder="Tekan Enter atau Koma untuk menambah tag"
                                             className={errors.tags ? 'border-destructive' : ''}
-                                            disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                            disabled={isDisabledForReporterOnPublishedOwnArticle}
                                         />
-                                        <Button
-                                            type="button"
-                                            onClick={handleAddTag}
-                                            disabled={isReporter && !isAdmin && artikel.status === 'published'}
-                                        >
+                                        <Button type="button" onClick={handleAddTag} disabled={isDisabledForReporterOnPublishedOwnArticle}>
                                             Add Tag
                                         </Button>
                                     </div>
@@ -321,7 +392,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                                     type="button"
                                                     onClick={() => handleRemoveTag(tag)}
                                                     className="ml-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-blue-400 hover:bg-blue-200 hover:text-blue-500 focus:bg-blue-500 focus:text-white"
-                                                    disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                                    disabled={isDisabledForReporterOnPublishedOwnArticle}
                                                 >
                                                     <span className="sr-only">Remove {tag}</span>
                                                     <X className="h-3 w-3" />
@@ -331,16 +402,78 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                     </div>
                                 </div>
                                 <div>
-                                    <Label htmlFor="meta_description">Meta Deskripsi</Label>
-                                    <Textarea
-                                        id="meta_description"
-                                        value={data.meta_description}
-                                        onChange={(e) => setData('meta_description', e.target.value)}
-                                        className={errors.meta_description ? 'border-destructive' : ''}
-                                        rows={3}
-                                        disabled={isReporter && !isAdmin && artikel.status === 'published'}
-                                    />
-                                    {errors.meta_description && <p className="mt-1 text-sm text-destructive">{errors.meta_description}</p>}
+                                    <Label htmlFor="event_terkait">Event Terkait</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                className={cn('w-full justify-start font-normal', errors.event_terkait && 'border-destructive')}
+                                                disabled={isDisabledForReporterOnPublishedOwnArticle}
+                                            >
+                                                {data.event_terkait.length > 0 ? `${data.event_terkait.length} event dipilih` : 'Pilih event terkait'}
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                            <Command>
+                                                <CommandInput placeholder="Cari event..." value={eventSearch} onValueChange={setEventSearch} />
+                                                <CommandList>
+                                                    <CommandEmpty>Tidak ada event ditemukan.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        {filteredEvents.map((event) => (
+                                                            <CommandItem
+                                                                key={event.id}
+                                                                onSelect={() => {
+                                                                    if (data.event_terkait.includes(event.id)) {
+                                                                        handleRemoveEvent(event.id);
+                                                                    } else {
+                                                                        handleAddEvent(event.id);
+                                                                    }
+                                                                }}
+                                                                className="flex items-center gap-2"
+                                                            >
+                                                                <Checkbox
+                                                                    checked={data.event_terkait.includes(event.id)}
+                                                                    onCheckedChange={() => {
+                                                                        if (data.event_terkait.includes(event.id)) {
+                                                                            handleRemoveEvent(event.id);
+                                                                        } else {
+                                                                            handleAddEvent(event.id);
+                                                                        }
+                                                                    }}
+                                                                />
+                                                                {event.nama}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                    {errors.event_terkait && <p className="mt-1 text-sm text-destructive">{errors.event_terkait}</p>}
+                                    {data.event_terkait.length > 0 && (
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                            {data.event_terkait.map((eventId) => {
+                                                const event = events.find((e) => e.id === eventId);
+                                                return event ? (
+                                                    <span
+                                                        key={event.id}
+                                                        className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800"
+                                                    >
+                                                        {event.nama}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveEvent(event.id)}
+                                                            className="ml-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-green-400 hover:bg-green-200 hover:text-green-500 focus:bg-green-500 focus:text-white"
+                                                            disabled={isDisabledForReporterOnPublishedOwnArticle}
+                                                        >
+                                                            <span className="sr-only">Remove {event.nama}</span>
+                                                            <X className="h-3 w-3" />
+                                                        </button>
+                                                    </span>
+                                                ) : null;
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <Label htmlFor="tanggal_jadwal_publikasi">Tanggal Jadwal Publikasi</Label>
@@ -354,7 +487,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                                     errors.tanggal_jadwal_publikasi && 'border-destructive',
                                                 )}
                                                 type="button"
-                                                disabled={isReporter && !isAdmin && artikel.status === 'published'}
+                                                disabled={isDisabledForReporterOnPublishedOwnArticle}
                                             >
                                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                                 {data.tanggal_jadwal_publikasi ? (
@@ -385,7 +518,7 @@ export default function ArtikelEdit({ artikel, kategoris, reporters }: ArtikelEd
                                         Batal
                                     </Button>
                                 </Link>
-                                <Button type="submit" disabled={processing || (isReporter && !isAdmin && artikel.status === 'published')}>
+                                <Button type="submit" disabled={processing || isDisabledForReporterOnPublishedOwnArticle}>
                                     Perbarui Artikel
                                 </Button>
                             </div>

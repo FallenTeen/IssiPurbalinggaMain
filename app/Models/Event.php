@@ -283,7 +283,6 @@ class Event extends Model
         ];
     }
 
-    // Static methods
     public static function generateUniqueSlug($name, $id = null)
     {
         $slug = Str::slug($name);

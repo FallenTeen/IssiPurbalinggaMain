@@ -8,7 +8,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem, type User } from '@/types';
 import { PaginatedQueryResult } from '@/types/pagination';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { FormEventHandler, useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface KategoriArtikel {
     id: number;
@@ -20,6 +20,7 @@ interface Artikel {
     judul: string;
     slug: string;
     status: 'draft' | 'review' | 'published' | 'archived';
+    rejection_reason: string | null;
     reporter: User;
     kategori: KategoriArtikel;
     tanggal_publikasi?: string;
@@ -66,41 +67,87 @@ export default function ArtikelIndex() {
     const [reporterFilter, setReporterFilter] = useState(filters.reporter_id || 'all');
     const [sortBy, setSortBy] = useState(filters.sort_by || 'recent');
 
+    const [searchDebounce, setSearchDebounce] = useState(filters.search || '');
+
     const isAdmin = auth.user?.roles.includes('admin');
     const isReporter = auth.user?.roles.includes('reporter');
     const isVerifikator = auth.user?.roles.includes('verifikator');
+    const isUser = auth.user && !isAdmin && !isReporter && !isVerifikator;
 
     const canCreateArtikel = isAdmin || isReporter;
     const canEditArtikel = (artikel: Artikel) => {
-        return isAdmin || isVerifikator || (isReporter && auth.user?.id === artikel.reporter.id && artikel.status !== 'published');
+        if (isReporter && auth.user?.id === artikel.reporter.id) {
+            return artikel.status !== 'published' || isAdmin || isVerifikator;
+        }
+        return isAdmin || isVerifikator;
     };
+
     const canPublishArtikel = isAdmin || isVerifikator;
     const canArchiveArtikel = isAdmin || isVerifikator;
     const canRejectArtikel = isAdmin || isVerifikator;
+    const canReviseArtikel = isAdmin || isVerifikator;
     const canDeleteArtikel = isAdmin;
 
-    const applyFilters: FormEventHandler = (e) => {
-        e.preventDefault();
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setSearchDebounce(search);
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [search]);
+
+    useEffect(() => {
+        const params = new URLSearchParams();
+
+        if (statusFilter !== 'all') params.set('status', statusFilter);
+        if (kategoriFilter !== 'all') params.set('kategori_id', kategoriFilter);
+        if (reporterFilter !== 'all') params.set('reporter_id', reporterFilter);
+        if (searchDebounce) params.set('search', searchDebounce);
+        if (sortBy !== 'recent') params.set('sort_by', sortBy);
+
         router.get(
-            route('artikels.index'),
-            {
-                status: statusFilter === 'all' ? null : statusFilter,
-                kategori_id: kategoriFilter === 'all' ? null : kategoriFilter,
-                reporter_id: reporterFilter === 'all' ? null : reporterFilter,
-                search: search || null,
-                sort_by: sortBy === 'recent' ? null : sortBy,
-            },
+            '/artikels',
+            Object.fromEntries(params.entries()),
             {
                 preserveState: true,
                 replace: true,
-            },
+                only: ['artikels'],
+            }
         );
+    }, [statusFilter, kategoriFilter, reporterFilter, searchDebounce, sortBy]);
+
+    const handleSearchChange = (value: string) => {
+        setSearch(value);
+    };
+
+    const handleStatusChange = (value: string) => {
+        setStatusFilter(value);
+    };
+
+    const handleKategoriChange = (value: string) => {
+        setKategoriFilter(value);
+    };
+
+    const handleReporterChange = (value: string) => {
+        setReporterFilter(value);
+    };
+
+    const handleSortChange = (value: string) => {
+        setSortBy(value);
+    };
+
+    const resetFilters = () => {
+        setSearch('');
+        setStatusFilter('all');
+        setKategoriFilter('all');
+        setReporterFilter('all');
+        setSortBy('recent');
     };
 
     const handlePublish = (artikelId: number) => {
         if (confirm('Apakah Anda yakin ingin mempublikasikan artikel ini?')) {
             router.put(
-                route('artikels.publish', artikelId),
+                `/artikels/${artikelId}/publish`,
                 {},
                 {
                     onSuccess: () => alert('Artikel berhasil dipublikasikan!'),
@@ -113,7 +160,7 @@ export default function ArtikelIndex() {
     const handleArchive = (artikelId: number) => {
         if (confirm('Apakah Anda yakin ingin mengarsipkan artikel ini?')) {
             router.put(
-                route('artikels.archive', artikelId),
+                `/artikels/${artikelId}/archive`,
                 {},
                 {
                     onSuccess: () => alert('Artikel berhasil diarsipkan!'),
@@ -123,22 +170,53 @@ export default function ArtikelIndex() {
         }
     };
 
-    const handleReject = (artikelId: number) => {
-        if (confirm('Apakah Anda yakin ingin menolak artikel ini dan mengembalikannya ke draft?')) {
+    const handleReject = (artikel: Artikel) => {
+        const reason = prompt('Masukkan alasan penolakan artikel (minimal 10 karakter):');
+        if (reason && reason.trim().length >= 10) {
             router.put(
-                route('artikels.reject', artikelId),
-                {},
+                `/artikels/${artikel.id}/reject`,
+                { rejection_reason: reason.trim() },
                 {
-                    onSuccess: () => alert('Artikel berhasil ditolak!'),
-                    onError: (errors) => alert(errors.message || 'Gagal menolak artikel.'),
+                    onSuccess: () => {
+                        alert('Artikel berhasil ditolak dan dikembalikan ke draft!');
+                    },
+                    onError: (errors) => {
+                        console.error('Error rejecting artikel:', errors);
+                        const errorMessage = errors.message || errors.rejection_reason || 'Gagal menolak artikel.';
+                        alert(errorMessage);
+                    },
                 },
             );
+        } else if (reason !== null) {
+            alert('Alasan penolakan harus diisi minimal 10 karakter.');
+        }
+    };
+
+    const handleRevise = (artikel: Artikel) => {
+        const reason = prompt('Masukkan alasan revisi artikel (minimal 10 karakter):');
+        if (reason && reason.trim().length >= 10) {
+            router.put(
+                `/artikels/${artikel.id}/revise`,
+                { revision_reason: reason.trim() },
+                {
+                    onSuccess: () => {
+                        alert('Artikel berhasil dikembalikan untuk revisi!');
+                    },
+                    onError: (errors) => {
+                        console.error('Error revising artikel:', errors);
+                        const errorMessage = errors.message || errors.revision_reason || 'Gagal meminta revisi artikel.';
+                        alert(errorMessage);
+                    },
+                },
+            );
+        } else if (reason !== null) {
+            alert('Alasan revisi harus diisi minimal 10 karakter.');
         }
     };
 
     const handleDelete = (artikelId: number) => {
         if (confirm('Apakah Anda yakin ingin menghapus artikel ini? Tindakan ini tidak dapat dibatalkan.')) {
-            router.delete(route('artikels.destroy', artikelId), {
+            router.delete(`/artikels/${artikelId}`, {
                 onSuccess: () => alert('Artikel berhasil dihapus!'),
                 onError: (errors) => alert(errors.message || 'Gagal menghapus artikel.'),
             });
@@ -152,7 +230,7 @@ export default function ArtikelIndex() {
                 <div className="flex items-center justify-between">
                     <h2 className="text-2xl leading-none font-semibold tracking-tight">Daftar Artikel</h2>
                     {canCreateArtikel && (
-                        <Link href={route('artikels.create')}>
+                        <Link href="/artikels/create">
                             <Button>Tambah Artikel</Button>
                         </Link>
                     )}
@@ -161,38 +239,43 @@ export default function ArtikelIndex() {
                 <Card>
                     <CardHeader>
                         <CardTitle>Filter Artikel</CardTitle>
-                        <CardDescription>Saring daftar artikel.</CardDescription>
+                        <CardDescription>Saring daftar artikel secara real-time.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <form onSubmit={applyFilters} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                             <div>
                                 <Label htmlFor="search">Cari</Label>
                                 <Input
                                     id="search"
                                     type="text"
                                     value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
+                                    onChange={(e) => handleSearchChange(e.target.value)}
                                     placeholder="Cari judul atau konten..."
                                 />
                             </div>
-                            <div>
-                                <Label htmlFor="status-filter">Status</Label>
-                                <Select onValueChange={setStatusFilter} value={statusFilter}>
-                                    <SelectTrigger id="status-filter">
-                                        <SelectValue placeholder="Pilih Status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">Semua</SelectItem>
-                                        <SelectItem value="draft">Draft</SelectItem>
-                                        <SelectItem value="review">Review</SelectItem>
-                                        <SelectItem value="published">Published</SelectItem>
-                                        <SelectItem value="archived">Archived</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+
+                            {/* Filter Status hanya untuk Admin/Verifikator */}
+                            {(isAdmin || isVerifikator) && (
+                                <div>
+                                    <Label htmlFor="status-filter">Status</Label>
+                                    <Select onValueChange={handleStatusChange} value={statusFilter}>
+                                        <SelectTrigger id="status-filter">
+                                            <SelectValue placeholder="Pilih Status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">Semua</SelectItem>
+                                            <SelectItem value="draft">Draft</SelectItem>
+                                            <SelectItem value="review">Review</SelectItem>
+                                            <SelectItem value="published">Published</SelectItem>
+                                            <SelectItem value="archived">Archived</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
                             <div>
                                 <Label htmlFor="kategori-filter">Kategori</Label>
-                                <Select onValueChange={setKategoriFilter} value={kategoriFilter}>
+                                <Select onValueChange={handleKategoriChange} value={kategoriFilter}>
                                     <SelectTrigger id="kategori-filter">
                                         <SelectValue placeholder="Pilih Kategori" />
                                     </SelectTrigger>
@@ -206,25 +289,30 @@ export default function ArtikelIndex() {
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <div>
-                                <Label htmlFor="reporter-filter">Reporter</Label>
-                                <Select onValueChange={setReporterFilter} value={reporterFilter}>
-                                    <SelectTrigger id="reporter-filter">
-                                        <SelectValue placeholder="Pilih Reporter" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">Semua</SelectItem>
-                                        {reporters.map((reporter) => (
-                                            <SelectItem key={reporter.id} value={String(reporter.id)}>
-                                                {reporter.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+
+                            {/* Filter Reporter hanya untuk Admin/Verifikator */}
+                            {(isAdmin || isVerifikator) && (
+                                <div>
+                                    <Label htmlFor="reporter-filter">Reporter</Label>
+                                    <Select onValueChange={handleReporterChange} value={reporterFilter}>
+                                        <SelectTrigger id="reporter-filter">
+                                            <SelectValue placeholder="Pilih Reporter" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">Semua</SelectItem>
+                                            {reporters.map((reporter) => (
+                                                <SelectItem key={reporter.id} value={String(reporter.id)}>
+                                                    {reporter.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
                             <div>
                                 <Label htmlFor="sort-by">Urutkan Berdasarkan</Label>
-                                <Select onValueChange={setSortBy} value={sortBy}>
+                                <Select onValueChange={handleSortChange} value={sortBy}>
                                     <SelectTrigger id="sort-by">
                                         <SelectValue placeholder="Urutkan" />
                                     </SelectTrigger>
@@ -234,10 +322,13 @@ export default function ArtikelIndex() {
                                     </SelectContent>
                                 </Select>
                             </div>
+
                             <div className="flex items-end">
-                                <Button type="submit">Terapkan Filter</Button>
+                                <Button type="button" variant="outline" onClick={resetFilters}>
+                                    Reset Filter
+                                </Button>
                             </div>
-                        </form>
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -268,10 +359,10 @@ export default function ArtikelIndex() {
                                                     className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
                                                         artikel.status === 'published'
                                                             ? 'bg-green-100 text-green-800'
-                                                            : artikel.status === 'review'
-                                                              ? 'bg-yellow-100 text-yellow-800'
-                                                              : artikel.status === 'draft'
-                                                                ? 'bg-gray-100 text-gray-800'
+                                                            : artikel.status === 'draft'
+                                                              ? 'bg-gray-100 text-gray-800'
+                                                              : artikel.status === 'review'
+                                                                ? 'bg-blue-100 text-blue-800'
                                                                 : 'bg-red-100 text-red-800'
                                                     }`}
                                                 >
@@ -285,51 +376,128 @@ export default function ArtikelIndex() {
                                             </TableCell>
                                             <TableCell>{artikel.views_count ?? 0}</TableCell>
                                             <TableCell className="flex flex-wrap gap-2">
-                                                <Link href={route('artikels.show', artikel.slug)}>
+                                                <Link href={`/artikels/${artikel.slug}`}>
                                                     <Button variant="outline" size="sm">
                                                         Lihat
                                                     </Button>
                                                 </Link>
 
                                                 {canEditArtikel(artikel) && (
-                                                    <Link href={route('artikels.edit', artikel.id)}>
+                                                    <Link href={`/artikels/${artikel.id}/edit`}>
                                                         <Button variant="outline" size="sm">
                                                             Edit
                                                         </Button>
                                                     </Link>
                                                 )}
 
-                                                {canPublishArtikel && artikel.status !== 'published' && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handlePublish(artikel.id)}
-                                                        className="bg-green-50 text-green-700 hover:bg-green-100"
-                                                    >
-                                                        Publish
-                                                    </Button>
+                                                {artikel.status === 'draft' && (
+                                                    <>
+                                                        {canPublishArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handlePublish(artikel.id)}
+                                                                className="bg-green-50 text-green-700 hover:bg-green-100"
+                                                            >
+                                                                Publish
+                                                            </Button>
+                                                        )}
+                                                        {canRejectArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleReject(artikel)}
+                                                                className="bg-red-50 text-red-700 hover:bg-red-100"
+                                                            >
+                                                                Tolak
+                                                            </Button>
+                                                        )}
+                                                    </>
                                                 )}
 
-                                                {canArchiveArtikel && artikel.status !== 'archived' && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleArchive(artikel.id)}
-                                                        className="bg-orange-50 text-orange-700 hover:bg-orange-100"
-                                                    >
-                                                        Archive
-                                                    </Button>
+                                                {artikel.status === 'review' && (
+                                                    <>
+                                                        {canPublishArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handlePublish(artikel.id)}
+                                                                className="bg-green-50 text-green-700 hover:bg-green-100"
+                                                            >
+                                                                Publish
+                                                            </Button>
+                                                        )}
+                                                        {canRejectArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleReject(artikel)}
+                                                                className="bg-red-50 text-red-700 hover:bg-red-100"
+                                                            >
+                                                                Tolak
+                                                            </Button>
+                                                        )}
+                                                        {canReviseArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleRevise(artikel)}
+                                                                className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                                            >
+                                                                Revisi
+                                                            </Button>
+                                                        )}
+                                                    </>
                                                 )}
 
-                                                {canRejectArtikel && (artikel.status === 'review' || artikel.status === 'published') && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleReject(artikel.id)}
-                                                        className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                                                    >
-                                                        Tolak
-                                                    </Button>
+                                                {artikel.status === 'published' && (
+                                                    <>
+                                                        {canArchiveArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleArchive(artikel.id)}
+                                                                className="bg-orange-50 text-orange-700 hover:bg-orange-100"
+                                                            >
+                                                                Archive
+                                                            </Button>
+                                                        )}
+                                                        {canReviseArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleRevise(artikel)}
+                                                                className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                                            >
+                                                                Revisi
+                                                            </Button>
+                                                        )}
+                                                    </>
+                                                )}
+
+                                                {artikel.status === 'archived' && (
+                                                    <>
+                                                        {canPublishArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handlePublish(artikel.id)}
+                                                                className="bg-green-50 text-green-700 hover:bg-green-100"
+                                                            >
+                                                                Publish
+                                                            </Button>
+                                                        )}
+                                                        {canReviseArtikel && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleRevise(artikel)}
+                                                                className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                                            >
+                                                                Revisi
+                                                            </Button>
+                                                        )}
+                                                    </>
                                                 )}
 
                                                 {canDeleteArtikel && (

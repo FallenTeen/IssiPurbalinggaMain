@@ -21,6 +21,7 @@ class Artikel extends Model
         'reporter_id',
         'kategori_id',
         'status',
+        'rejection_reason',
         'featured_image_url',
         'gallery_urls',
         'tags',
@@ -78,6 +79,11 @@ class Artikel extends Model
     public function interactions()
     {
         return $this->hasMany(InteraksiUser::class, 'artikel_id');
+    }
+
+    public function events()
+    {
+        return $this->hasMany(Event::class, 'id', 'event_terkait');
     }
 
     // Scopes
